@@ -107,15 +107,53 @@ class Orchestrator:
         return self.repo.create_book(meta)
 
     def write_chapter(self, slug: str, chapter_no: int, brief: str | None = None, max_rounds: int = 5) -> Path:
-        self.repo.create_chapter(slug, chapter_no, brief)
+        chapter_dir = self.repo.chapter_dir(slug, chapter_no)
+        if chapter_dir.exists():
+            (chapter_dir / "drafts").mkdir(parents=True, exist_ok=True)
+            (chapter_dir / "reviews").mkdir(parents=True, exist_ok=True)
+        else:
+            self.repo.create_chapter(slug, chapter_no, brief)
+
+        final_path = chapter_dir / "final.md"
+        if final_path.exists():
+            return final_path
+
         writer = self._build_writer()
         reviewers = self._build_reviewers()
         summarizer = self._build_summarizer()
         review_pipeline = ReviewPipeline(reviewers, ReviewPolicy(min_avg_score=80))
         context_service = ChapterContextService(self.repo)
 
+        latest_draft_no = self.snapshots.latest_draft_no(slug, chapter_no)
         rewrite_feedback = ""
-        for draft_no in range(1, max_rounds + 1):
+        start_draft_no = 1
+
+        if latest_draft_no is not None:
+            start_draft_no = latest_draft_no + 1
+            last_draft_text = self.snapshots.read_draft(slug, chapter_no, latest_draft_no)
+
+            def _resume_review_prompt(reviewer_name: str) -> str:
+                return (
+                    "请严格评审以下小说章节草稿，并仅返回JSON:\n"
+                    "{\"reviewer\":\"name\",\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
+                    f"评审维度:{reviewer_name}\n"
+                    f"草稿:\n{last_draft_text}"
+                )
+
+            resume_results, _ = review_pipeline.run(_resume_review_prompt)
+            rewrite_feedback = "\n".join(
+                [
+                    f"[{r.reviewer}] must_fix={r.must_fix}; issues={r.issues}; suggestions={r.suggestions}"
+                    for r in resume_results
+                ]
+            )
+
+        if start_draft_no > max_rounds:
+            raise RuntimeError(
+                f"Chapter {chapter_no} already has draft_{start_draft_no-1:03d}; increase --max-rounds to continue"
+            )
+
+        for draft_no in range(start_draft_no, max_rounds + 1):
             context = context_service.build_context(slug, chapter_no, brief)
             writer_prompt = (
                 "请基于以下上下文撰写本章草稿，要求叙事连贯、人物一致、对话自然。\n\n"
@@ -139,7 +177,6 @@ class Orchestrator:
 
             if ok:
                 final_path = self.snapshots.save_final(slug, chapter_no, draft_text)
-                chapter_dir = self.repo.chapter_dir(slug, chapter_no)
                 summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（500字内）：\n\n{draft_text}"
                 summary = summarizer.summarize(summary_prompt)
                 (chapter_dir / "summary.md").write_text(summary, encoding="utf-8")
