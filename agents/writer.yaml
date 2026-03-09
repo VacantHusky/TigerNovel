@@ -1,5 +1,5 @@
-name: writer
-model: gpt-5.3-codex
+﻿name: writer
 temperature: 0.8
 max_output_tokens: 2500
 system_prompt_file: prompts/writer_system.md
+

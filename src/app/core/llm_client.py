@@ -9,8 +9,8 @@ from openai import OpenAI
 
 class LLMClient:
     def __init__(self) -> None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_BASE_URL")
+        api_key = os.getenv("TIGER_NOVEL_API_KEY")
+        base_url = os.getenv("TIGER_NOVEL_BASE_URL")
         self.client = OpenAI(api_key=api_key, base_url=base_url)
 
     def complete_text(

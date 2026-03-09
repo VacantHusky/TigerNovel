@@ -1,5 +1,5 @@
-name: worldbuilder
-model: gpt-5.3-codex
+﻿name: worldbuilder
 temperature: 0.6
 max_output_tokens: 1800
 system_prompt_file: prompts/worldbuilder_system.md
+

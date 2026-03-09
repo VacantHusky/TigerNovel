@@ -10,7 +10,7 @@ from app.agents.worldbuilder import WorldBuilderAgent
 from app.agents.writer import WriterAgent
 from app.core.llm_client import LLMClient
 from app.core.prompt_loader import load_prompt
-from app.domain.models import AgentConfig, BookMeta
+from app.domain.models import AgentConfig, AgentDefaults, BookMeta
 from app.domain.policies import ReviewPolicy
 from app.services.chapter_context import ChapterContextService
 from app.services.review_pipeline import ReviewPipeline
@@ -25,10 +25,30 @@ class Orchestrator:
         self.snapshots = SnapshotStore(self.repo)
         self.llm = LLMClient()
 
+    def _load_agent_defaults(self) -> AgentDefaults:
+        path = self.root / "agents" / "defaults.yaml"
+        if not path.exists():
+            return AgentDefaults()
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return AgentDefaults(**data)
+
     def _load_agent_config(self, name: str) -> AgentConfig:
+        defaults = self._load_agent_defaults()
         path = self.root / "agents" / f"{name}.yaml"
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        return AgentConfig(**data)
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        cfg = AgentConfig(**data)
+
+        resolved_model = cfg.model or defaults.model
+        if not resolved_model:
+            raise ValueError(f"Agent '{name}' missing model and no defaults.model configured")
+
+        return AgentConfig(
+            name=cfg.name,
+            model=resolved_model,
+            temperature=cfg.temperature if cfg.temperature is not None else defaults.temperature,
+            max_output_tokens=cfg.max_output_tokens if cfg.max_output_tokens is not None else defaults.max_output_tokens,
+            system_prompt_file=cfg.system_prompt_file,
+        )
 
     def _build_writer(self) -> WriterAgent:
         cfg = self._load_agent_config("writer")

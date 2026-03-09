@@ -7,11 +7,17 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class AgentConfig(BaseModel):
-    name: str
-    model: str
+class AgentDefaults(BaseModel):
+    model: str | None = None
     temperature: float = 0.7
     max_output_tokens: int = 2000
+
+
+class AgentConfig(BaseModel):
+    name: str
+    model: str | None = None
+    temperature: float | None = None
+    max_output_tokens: int | None = None
     system_prompt_file: str
 
 
