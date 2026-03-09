@@ -24,15 +24,17 @@ def _normalize_list_items(value) -> list[str]:
 
 REVIEW_SCHEMA = {
     "type": "object",
+    "description": "代码评审结果，描述某个评审角色的评价。",
     "additionalProperties": False,
     "required": ["reviewer", "passed", "score", "issues", "must_fix", "suggestions"],
     "properties": {
-        "reviewer": {"type": "string"},
-        "passed": {"type": "boolean"},
-        "score": {"type": "integer", "minimum": 0, "maximum": 100},
-        "issues": {"type": "array", "items": {"type": "string"}},
-        "must_fix": {"type": "array", "items": {"type": "string"}},
-        "suggestions": {"type": "array", "items": {"type": "string"}},
+        "reviewer": {"type": "string", "description": "评审者名称或角色。"},
+        "passed": {"type": "boolean", "description": "是否通过评审。"},
+        "score": {"type": "integer", "minimum": 0, "maximum": 100, "description": "评分（0-100）。用于量化当前内容质量。"},
+        "issues": {"type": "array", "items": {"type": "string"}, "description": "发现的问题列表。"},
+        "must_fix": {"type": "array", "items": {"type": "string"}, "description": "必须修改的问题，否则无法通过评审。"},
+        "suggestions": {"type": "array", "items": {"type": "string"},
+                        "description": "改进建议（非强制），用于进一步提升质量。"},
     },
 }
 
