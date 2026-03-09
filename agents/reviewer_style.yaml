@@ -1,0 +1,5 @@
+name: reviewer_style
+model: gpt-5.3-codex
+temperature: 0.2
+max_output_tokens: 1200
+system_prompt_file: prompts/reviewer_style_system.md

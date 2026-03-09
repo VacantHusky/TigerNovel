@@ -1,0 +1,5 @@
+name: reviewer_character
+model: gpt-5.3-codex
+temperature: 0.2
+max_output_tokens: 1200
+system_prompt_file: prompts/reviewer_character_system.md

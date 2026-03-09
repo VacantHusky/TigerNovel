@@ -1,0 +1,5 @@
+name: summarizer
+model: gpt-5.3-codex
+temperature: 0.3
+max_output_tokens: 900
+system_prompt_file: prompts/summarizer_system.md

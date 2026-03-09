@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from app.domain.models import ReviewResult
+from app.storage.fs_repo import FileRepository
+
+
+class SnapshotStore:
+    def __init__(self, repo: FileRepository) -> None:
+        self.repo = repo
+
+    def save_draft(self, slug: str, chapter_no: int, draft_no: int, content: str) -> Path:
+        cdir = self.repo.chapter_dir(slug, chapter_no)
+        dpath = cdir / "drafts" / f"draft_{draft_no:03d}.md"
+        dpath.write_text(content, encoding="utf-8")
+        return dpath
+
+    def save_review(self, slug: str, chapter_no: int, draft_no: int, review: ReviewResult) -> Path:
+        cdir = self.repo.chapter_dir(slug, chapter_no)
+        rpath = cdir / "reviews" / f"review_{review.reviewer}_draft_{draft_no:03d}.json"
+        self.repo.write_json(rpath, review.model_dump(mode="json"))
+        return rpath
+
+    def save_final(self, slug: str, chapter_no: int, content: str) -> Path:
+        cdir = self.repo.chapter_dir(slug, chapter_no)
+        fpath = cdir / "final.md"
+        fpath.write_text(content, encoding="utf-8")
+        return fpath
