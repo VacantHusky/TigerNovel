@@ -134,10 +134,9 @@ class Orchestrator:
 
             def _resume_review_prompt(reviewer_name: str) -> str:
                 return (
-                    "请严格评审以下小说章节草稿，并仅返回JSON:\n"
-                    "{\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
+                    "请评审以下小说章节内容。\n\n"
                     f"评审维度:{reviewer_name}\n"
-                    f"草稿:\n{last_draft_text}"
+                    f"内容:\n{last_draft_text}"
                 )
 
             resume_results, _ = review_pipeline.run(_resume_review_prompt)
@@ -147,6 +146,9 @@ class Orchestrator:
                     for r in resume_results
                 ]
             )
+            # 写入
+            for rr in resume_results:
+                self.snapshots.save_review(slug, chapter_no, latest_draft_no, rr)
 
         if start_draft_no > max_rounds:
             raise RuntimeError(
@@ -154,21 +156,23 @@ class Orchestrator:
             )
 
         for draft_no in range(start_draft_no, max_rounds + 1):
+            print(f"==== 第 {draft_no} 次写草稿 ====")
             context = context_service.build_context(slug, chapter_no, brief)
             writer_prompt = (
-                "请基于以下上下文撰写本章草稿，要求叙事连贯、人物一致、对话自然。\n\n"
+                "请基于以下上下文撰写本章正文，要求叙事连贯、人物一致、对话自然。\n\n"
                 f"{context}\n\n"
                 f"上轮评审意见（若有）:\n{rewrite_feedback}"
             )
             draft_text = writer.write_draft(writer_prompt)
             self.snapshots.save_draft(slug, chapter_no, draft_no, draft_text)
 
+            print("-- 草稿已写完，开始评审。")
+
             def _review_prompt(reviewer_name: str) -> str:
                 return (
-                    "请严格评审以下小说章节草稿，并仅返回JSON:\n"
-                    "{\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
+                    "请评审以下小说章节内容。\n\n"
                     f"评审维度:{reviewer_name}\n"
-                    f"草稿:\n{draft_text}"
+                    f"内容:\n{draft_text}"
                 )
 
             review_results, ok = review_pipeline.run(_review_prompt)
@@ -177,7 +181,7 @@ class Orchestrator:
 
             if ok:
                 final_path = self.snapshots.save_final(slug, chapter_no, draft_text)
-                summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（500字内）：\n\n{draft_text}"
+                summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（300字内）：\n\n{draft_text}"
                 summary = summarizer.summarize(summary_prompt)
                 (chapter_dir / "summary.md").write_text(summary, encoding="utf-8")
 

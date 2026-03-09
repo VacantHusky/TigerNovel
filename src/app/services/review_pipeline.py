@@ -23,6 +23,7 @@ class ReviewPipeline:
                 for name, prompt in prompts.items()
             }
             for fut, name in futures.items():
+                print(f"{name} 开始工作...")
                 results_map[name] = fut.result()
 
         # keep reviewer order stable
