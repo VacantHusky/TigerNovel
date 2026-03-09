@@ -20,7 +20,7 @@ def main() -> None:
     p_write = sub.add_parser("write-chapter", help="Write one chapter with review loop")
     p_write.add_argument("--slug", required=True)
     p_write.add_argument("--chapter", required=True, type=int)
-    p_write.add_argument("--brief")
+    p_write.add_argument("--chapter-title")
     p_write.add_argument("--max-rounds", type=int, default=20)
 
     args = parser.parse_args()
@@ -43,7 +43,7 @@ def main() -> None:
         path = orch.write_chapter(
             slug=args.slug,
             chapter_no=args.chapter,
-            brief=args.brief,
+            chapter_title=args.chapter_title,
             max_rounds=args.max_rounds,
         )
         print(f"Chapter finalized: {path}")

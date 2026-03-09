@@ -4,7 +4,6 @@ from pathlib import Path
 
 import yaml
 
-from app.agents.goal import GoalAgent
 from app.agents.reviewer import ReviewerAgent
 from app.agents.summarizer import SummarizerAgent
 from app.agents.worldbuilder import WorldBuilderAgent
@@ -58,11 +57,6 @@ class Orchestrator:
         system_prompt = load_prompt(self.root / cfg.system_prompt_file)
         return WriterAgent(cfg, self.llm, system_prompt)
 
-    def _build_goal(self) -> GoalAgent:
-        cfg = self._load_agent_config("goal")
-        system_prompt = load_prompt(self.root / cfg.system_prompt_file)
-        return GoalAgent(cfg, self.llm, system_prompt)
-
     def _build_summarizer(self) -> SummarizerAgent:
         cfg = self._load_agent_config("summarizer")
         system_prompt = load_prompt(self.root / cfg.system_prompt_file)
@@ -106,14 +100,14 @@ class Orchestrator:
             [f"[{r.reviewer}] must_fix={r.must_fix}; issues={r.issues}; suggestions={r.suggestions}" for r in results]
         )
 
-    def _ensure_chapter_ready(self, slug: str, chapter_no: int, brief: str | None) -> tuple[Path, Path]:
+    def _ensure_chapter_ready(self, slug: str, chapter_no: int, chapter_title: str | None) -> tuple[Path, Path]:
         """确保章节目录结构可用，并返回 (chapter_dir, final_md_path)。"""
         chapter_dir = self.repo.chapter_dir(slug, chapter_no)
         if chapter_dir.exists():
             (chapter_dir / "drafts").mkdir(parents=True, exist_ok=True)
             (chapter_dir / "reviews").mkdir(parents=True, exist_ok=True)
         else:
-            self.repo.create_chapter(slug, chapter_no, brief)
+            self.repo.create_chapter(slug, chapter_no, chapter_title)
 
         return chapter_dir, chapter_dir / "final.md"
 
@@ -149,23 +143,12 @@ class Orchestrator:
         draft_text: str,
         summarizer: SummarizerAgent,
     ) -> Path:
-        """保存定稿并更新章节摘要与滚动摘要。"""
+        """保存定稿并更新章节摘要。"""
         final_path = self.snapshots.save_final(slug, chapter_no, draft_text)
         summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（300字内）：\n\n{draft_text}"
         summary = summarizer.summarize(summary_prompt)
         (chapter_dir / "summary.md").write_text(summary, encoding="utf-8")
-
-        rolling_path = self.repo.book_dir(slug) / "memory" / "rolling_summary.md"
-        old = rolling_path.read_text(encoding="utf-8") if rolling_path.exists() else ""
-        rolling_path.write_text(old + f"\n\n## Chapter {chapter_no:03d}\n\n" + summary, encoding="utf-8")
         return final_path
-
-    def _resolve_chapter_goal(self, brief: str | None, base_context: str, goal_agent: GoalAgent) -> str:
-        """优先使用用户传入 brief；否则由 GoalAgent 自动生成简要本章目标。"""
-        if brief and brief.strip():
-            return brief.strip()
-        generated = goal_agent.draft_goal(base_context)
-        return generated.strip()
 
     def create_book(
         self,
@@ -199,21 +182,16 @@ class Orchestrator:
         )
         return self.repo.create_book(meta)
 
-    def write_chapter(self, slug: str, chapter_no: int, brief: str | None = None, max_rounds: int = 20) -> Path:
+    def write_chapter(self, slug: str, chapter_no: int, chapter_title: str | None = None, max_rounds: int = 20) -> Path:
         """执行“写作-评审”循环（支持断点续跑），直到通过或达到轮次上限。"""
-        chapter_dir, final_path = self._ensure_chapter_ready(slug, chapter_no, brief)
+        chapter_dir, final_path = self._ensure_chapter_ready(slug, chapter_no, chapter_title)
         if final_path.exists():
             return final_path
 
         writer = self._build_writer()
-        goal_agent = self._build_goal()
         summarizer = self._build_summarizer()
         review_pipeline = ReviewPipeline(self._build_reviewers(), ReviewPolicy(min_avg_score=80))
         context_service = ChapterContextService(self.repo)
-
-        # 先拿“基础上下文”（不含本章目标），再生成简要目标
-        base_context = context_service.build_context(slug, chapter_no, brief=None)
-        chapter_goal = self._resolve_chapter_goal(brief, base_context, goal_agent)
 
         start_draft_no, rewrite_feedback = self._resume_state(slug, chapter_no, review_pipeline)
         if final_path.exists():
@@ -224,7 +202,7 @@ class Orchestrator:
             )
 
         for draft_no in range(start_draft_no, max_rounds + 1):
-            context = context_service.build_context(slug, chapter_no, chapter_goal)
+            context = context_service.build_context(slug, chapter_no, chapter_title)
             draft_text = writer.write_draft(self._build_writer_prompt(context, rewrite_feedback))
             self.snapshots.save_draft(slug, chapter_no, draft_no, draft_text)
 

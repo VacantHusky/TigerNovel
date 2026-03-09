@@ -30,11 +30,11 @@ class FileRepository:
         (bdir / "memory" / "rolling_summary.md").write_text("# Rolling Summary\n\n", encoding="utf-8")
         return bdir
 
-    def create_chapter(self, slug: str, chapter_no: int, brief: str | None = None) -> Path:
+    def create_chapter(self, slug: str, chapter_no: int, title: str | None = None) -> Path:
         cdir = self.chapter_dir(slug, chapter_no)
         (cdir / "drafts").mkdir(parents=True, exist_ok=True)
         (cdir / "reviews").mkdir(parents=True, exist_ok=True)
-        meta = ChapterMeta(chapter_no=chapter_no, brief=brief)
+        meta = ChapterMeta(chapter_no=chapter_no, title=title)
         self.write_yaml(cdir / "chapter.yaml", meta.model_dump(mode="json"))
         return cdir
 

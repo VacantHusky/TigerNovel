@@ -4,7 +4,7 @@ setlocal
 REM TigerNovel Windows launcher
 REM Usage:
 REM   start_tigernovel.bat create-book --slug my-book --title "我的小说"
-REM   start_tigernovel.bat write-chapter --slug my-book --chapter 1 --brief "主角登场"
+REM   start_tigernovel.bat write-chapter --slug my-book --chapter 1 --chapter-title "雨夜来客"
 
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul
@@ -38,7 +38,7 @@ echo TigerNovel Launcher
 echo.
 echo Usage:
 echo   start_tigernovel.bat create-book --slug my-book --title "我的小说"
-echo   start_tigernovel.bat write-chapter --slug my-book --chapter 1 --brief "主角登场"
+echo   start_tigernovel.bat write-chapter --slug my-book --chapter 1 --chapter-title "雨夜来客"
 set "EXIT_CODE=0"
 
 :end

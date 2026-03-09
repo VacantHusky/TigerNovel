@@ -58,8 +58,8 @@ system_prompt_file: prompts/writer_system.md
 # 新建小说（可选字段可以留空）
 tigernovel create-book --slug my-book --title "我的小说" --synopsis "一个普通人逆袭"
 
-# 生成章节（可带本章目标）
-tigernovel write-chapter --slug my-book --chapter 1 --brief "主角初登场并埋下主线伏笔"
+# 生成章节（可带章节标题）
+tigernovel write-chapter --slug my-book --chapter 1 --chapter-title "雨夜来客"
 ```
 
 ## 目录约定

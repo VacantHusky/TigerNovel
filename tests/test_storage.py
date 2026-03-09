@@ -10,7 +10,7 @@ from app.storage.snapshots import SnapshotStore
 def test_repo_create_book_and_chapter(tmp_path: Path) -> None:
     repo = FileRepository(tmp_path)
     repo.create_book(BookMeta(slug="demo", title="Demo"))
-    cdir = repo.create_chapter("demo", 1, brief="test brief")
+    cdir = repo.create_chapter("demo", 1, title="第1章 测试")
 
     assert (tmp_path / "novels" / "demo" / "book.yaml").exists()
     assert (cdir / "drafts").exists()
@@ -20,7 +20,7 @@ def test_repo_create_book_and_chapter(tmp_path: Path) -> None:
 def test_snapshot_latest_draft_no(tmp_path: Path) -> None:
     repo = FileRepository(tmp_path)
     repo.create_book(BookMeta(slug="demo", title="Demo"))
-    repo.create_chapter("demo", 1, brief="test brief")
+    repo.create_chapter("demo", 1, title="第1章")
     snapshots = SnapshotStore(repo)
 
     assert snapshots.latest_draft_no("demo", 1) is None

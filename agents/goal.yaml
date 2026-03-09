@@ -1,4 +1,0 @@
-name: goal
-temperature: 0.2
-max_output_tokens: 120
-system_prompt_file: prompts/goal_system.md

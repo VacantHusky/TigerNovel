@@ -32,7 +32,7 @@ class BookMeta(BaseModel):
 
 class ChapterMeta(BaseModel):
     chapter_no: int
-    brief: str | None = None
+    title: str | None = None
     status: str = "drafting"
 
 

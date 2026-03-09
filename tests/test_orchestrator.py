@@ -28,7 +28,7 @@ def test_resume_state_marks_final_when_passed(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setenv("TIGER_NOVEL_API_KEY", "test-key")
     repo = FileRepository(tmp_path)
     repo.create_book(BookMeta(slug="demo", title="Demo"))
-    repo.create_chapter("demo", 1, brief="x")
+    repo.create_chapter("demo", 1, title="第1章")
 
     orch = Orchestrator(tmp_path)
     orch.snapshots.save_draft("demo", 1, 1, "draft content")
