@@ -21,7 +21,7 @@ def main() -> None:
     p_write.add_argument("--slug", required=True)
     p_write.add_argument("--chapter", required=True, type=int)
     p_write.add_argument("--brief")
-    p_write.add_argument("--max-rounds", type=int, default=5)
+    p_write.add_argument("--max-rounds", type=int, default=20)
 
     args = parser.parse_args()
 

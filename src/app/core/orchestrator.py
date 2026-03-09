@@ -106,7 +106,7 @@ class Orchestrator:
         )
         return self.repo.create_book(meta)
 
-    def write_chapter(self, slug: str, chapter_no: int, brief: str | None = None, max_rounds: int = 5) -> Path:
+    def write_chapter(self, slug: str, chapter_no: int, brief: str | None = None, max_rounds: int = 20) -> Path:
         chapter_dir = self.repo.chapter_dir(slug, chapter_no)
         if chapter_dir.exists():
             (chapter_dir / "drafts").mkdir(parents=True, exist_ok=True)
@@ -135,7 +135,7 @@ class Orchestrator:
             def _resume_review_prompt(reviewer_name: str) -> str:
                 return (
                     "请严格评审以下小说章节草稿，并仅返回JSON:\n"
-                    "{\"reviewer\":\"name\",\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
+                    "{\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
                     f"评审维度:{reviewer_name}\n"
                     f"草稿:\n{last_draft_text}"
                 )
@@ -166,7 +166,7 @@ class Orchestrator:
             def _review_prompt(reviewer_name: str) -> str:
                 return (
                     "请严格评审以下小说章节草稿，并仅返回JSON:\n"
-                    "{\"reviewer\":\"name\",\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
+                    "{\"passed\":true/false,\"score\":0-100,\"issues\":[],\"must_fix\":[],\"suggestions\":[]}\n\n"
                     f"评审维度:{reviewer_name}\n"
                     f"草稿:\n{draft_text}"
                 )
