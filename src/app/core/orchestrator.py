@@ -10,7 +10,7 @@ from app.agents.worldbuilder import WorldBuilderAgent
 from app.agents.writer import WriterAgent
 from app.core.llm_client import LLMClient
 from app.core.prompt_loader import load_prompt
-from app.domain.models import AgentConfig, AgentDefaults, BookMeta
+from app.domain.models import AgentConfig, AgentDefaults, BookMeta, ReviewResult
 from app.domain.policies import ReviewPolicy
 from app.services.chapter_context import ChapterContextService
 from app.services.review_pipeline import ReviewPipeline
@@ -19,6 +19,8 @@ from app.storage.snapshots import SnapshotStore
 
 
 class Orchestrator:
+    REVIEWER_NAMES = ["reviewer_style", "reviewer_plot", "reviewer_character"]
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.repo = FileRepository(root)
@@ -66,13 +68,79 @@ class Orchestrator:
         return WorldBuilderAgent(cfg, self.llm, system_prompt)
 
     def _build_reviewers(self) -> list[ReviewerAgent]:
-        names = ["reviewer_style", "reviewer_plot", "reviewer_character"]
         out: list[ReviewerAgent] = []
-        for n in names:
-            cfg = self._load_agent_config(n)
+        for name in self.REVIEWER_NAMES:
+            cfg = self._load_agent_config(name)
             system_prompt = load_prompt(self.root / cfg.system_prompt_file)
             out.append(ReviewerAgent(cfg, self.llm, system_prompt))
         return out
+
+    def _build_review_prompt(self, reviewer_name: str, content: str) -> str:
+        return (
+            "请评审以下小说章节内容。\n\n"
+            f"评审维度:{reviewer_name}\n"
+            f"内容:\n{content}"
+        )
+
+    def _build_writer_prompt(self, context: str, rewrite_feedback: str) -> str:
+        return (
+            "请基于以下上下文撰写本章正文，要求叙事连贯、人物一致、对话自然。\n\n"
+            f"{context}\n\n"
+            f"上轮评审意见（若有）:\n{rewrite_feedback}"
+        )
+
+    @staticmethod
+    def _format_rewrite_feedback(results: list[ReviewResult]) -> str:
+        return "\n".join(
+            [f"[{r.reviewer}] must_fix={r.must_fix}; issues={r.issues}; suggestions={r.suggestions}" for r in results]
+        )
+
+    def _ensure_chapter_ready(self, slug: str, chapter_no: int, brief: str | None) -> tuple[Path, Path]:
+        chapter_dir = self.repo.chapter_dir(slug, chapter_no)
+        if chapter_dir.exists():
+            (chapter_dir / "drafts").mkdir(parents=True, exist_ok=True)
+            (chapter_dir / "reviews").mkdir(parents=True, exist_ok=True)
+        else:
+            self.repo.create_chapter(slug, chapter_no, brief)
+
+        return chapter_dir, chapter_dir / "final.md"
+
+    def _resume_state(
+        self,
+        slug: str,
+        chapter_no: int,
+        review_pipeline: ReviewPipeline,
+    ) -> tuple[int, str]:
+        latest_draft_no = self.snapshots.latest_draft_no(slug, chapter_no)
+        if latest_draft_no is None:
+            return 1, ""
+
+        last_draft_text = self.snapshots.read_draft(slug, chapter_no, latest_draft_no)
+        resume_results, _ = review_pipeline.run(
+            lambda reviewer_name: self._build_review_prompt(reviewer_name, last_draft_text)
+        )
+        for rr in resume_results:
+            self.snapshots.save_review(slug, chapter_no, latest_draft_no, rr)
+
+        return latest_draft_no + 1, self._format_rewrite_feedback(resume_results)
+
+    def _finalize_chapter(
+        self,
+        slug: str,
+        chapter_no: int,
+        chapter_dir: Path,
+        draft_text: str,
+        summarizer: SummarizerAgent,
+    ) -> Path:
+        final_path = self.snapshots.save_final(slug, chapter_no, draft_text)
+        summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（300字内）：\n\n{draft_text}"
+        summary = summarizer.summarize(summary_prompt)
+        (chapter_dir / "summary.md").write_text(summary, encoding="utf-8")
+
+        rolling_path = self.repo.book_dir(slug) / "memory" / "rolling_summary.md"
+        old = rolling_path.read_text(encoding="utf-8") if rolling_path.exists() else ""
+        rolling_path.write_text(old + f"\n\n## Chapter {chapter_no:03d}\n\n" + summary, encoding="utf-8")
+        return final_path
 
     def create_book(
         self,
@@ -107,91 +175,35 @@ class Orchestrator:
         return self.repo.create_book(meta)
 
     def write_chapter(self, slug: str, chapter_no: int, brief: str | None = None, max_rounds: int = 20) -> Path:
-        chapter_dir = self.repo.chapter_dir(slug, chapter_no)
-        if chapter_dir.exists():
-            (chapter_dir / "drafts").mkdir(parents=True, exist_ok=True)
-            (chapter_dir / "reviews").mkdir(parents=True, exist_ok=True)
-        else:
-            self.repo.create_chapter(slug, chapter_no, brief)
-
-        final_path = chapter_dir / "final.md"
+        chapter_dir, final_path = self._ensure_chapter_ready(slug, chapter_no, brief)
         if final_path.exists():
             return final_path
 
         writer = self._build_writer()
-        reviewers = self._build_reviewers()
         summarizer = self._build_summarizer()
-        review_pipeline = ReviewPipeline(reviewers, ReviewPolicy(min_avg_score=80))
+        review_pipeline = ReviewPipeline(self._build_reviewers(), ReviewPolicy(min_avg_score=80))
         context_service = ChapterContextService(self.repo)
 
-        latest_draft_no = self.snapshots.latest_draft_no(slug, chapter_no)
-        rewrite_feedback = ""
-        start_draft_no = 1
-
-        if latest_draft_no is not None:
-            start_draft_no = latest_draft_no + 1
-            last_draft_text = self.snapshots.read_draft(slug, chapter_no, latest_draft_no)
-
-            def _resume_review_prompt(reviewer_name: str) -> str:
-                return (
-                    "请评审以下小说章节内容。\n\n"
-                    f"评审维度:{reviewer_name}\n"
-                    f"内容:\n{last_draft_text}"
-                )
-
-            resume_results, _ = review_pipeline.run(_resume_review_prompt)
-            rewrite_feedback = "\n".join(
-                [
-                    f"[{r.reviewer}] must_fix={r.must_fix}; issues={r.issues}; suggestions={r.suggestions}"
-                    for r in resume_results
-                ]
-            )
-            # 写入
-            for rr in resume_results:
-                self.snapshots.save_review(slug, chapter_no, latest_draft_no, rr)
-
+        start_draft_no, rewrite_feedback = self._resume_state(slug, chapter_no, review_pipeline)
         if start_draft_no > max_rounds:
             raise RuntimeError(
                 f"Chapter {chapter_no} already has draft_{start_draft_no-1:03d}; increase --max-rounds to continue"
             )
 
         for draft_no in range(start_draft_no, max_rounds + 1):
-            print(f"==== 第 {draft_no} 次写草稿 ====")
             context = context_service.build_context(slug, chapter_no, brief)
-            writer_prompt = (
-                "请基于以下上下文撰写本章正文，要求叙事连贯、人物一致、对话自然。\n\n"
-                f"{context}\n\n"
-                f"上轮评审意见（若有）:\n{rewrite_feedback}"
-            )
-            draft_text = writer.write_draft(writer_prompt)
+            draft_text = writer.write_draft(self._build_writer_prompt(context, rewrite_feedback))
             self.snapshots.save_draft(slug, chapter_no, draft_no, draft_text)
 
-            print("-- 草稿已写完，开始评审。")
-
-            def _review_prompt(reviewer_name: str) -> str:
-                return (
-                    "请评审以下小说章节内容。\n\n"
-                    f"评审维度:{reviewer_name}\n"
-                    f"内容:\n{draft_text}"
-                )
-
-            review_results, ok = review_pipeline.run(_review_prompt)
+            review_results, ok = review_pipeline.run(
+                lambda reviewer_name: self._build_review_prompt(reviewer_name, draft_text)
+            )
             for rr in review_results:
                 self.snapshots.save_review(slug, chapter_no, draft_no, rr)
 
             if ok:
-                final_path = self.snapshots.save_final(slug, chapter_no, draft_text)
-                summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（300字内）：\n\n{draft_text}"
-                summary = summarizer.summarize(summary_prompt)
-                (chapter_dir / "summary.md").write_text(summary, encoding="utf-8")
+                return self._finalize_chapter(slug, chapter_no, chapter_dir, draft_text, summarizer)
 
-                rolling_path = self.repo.book_dir(slug) / "memory" / "rolling_summary.md"
-                old = rolling_path.read_text(encoding="utf-8") if rolling_path.exists() else ""
-                rolling_path.write_text(old + f"\n\n## Chapter {chapter_no:03d}\n\n" + summary, encoding="utf-8")
-                return final_path
-
-            rewrite_feedback = "\n".join(
-                [f"[{r.reviewer}] must_fix={r.must_fix}; issues={r.issues}; suggestions={r.suggestions}" for r in review_results]
-            )
+            rewrite_feedback = self._format_rewrite_feedback(review_results)
 
         raise RuntimeError(f"Chapter {chapter_no} failed after {max_rounds} drafts")
