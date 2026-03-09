@@ -76,6 +76,7 @@ class Orchestrator:
         return out
 
     def _build_review_prompt(self, reviewer_name: str, content: str) -> str:
+        """Build a normalized review prompt for a specific reviewer and chapter content."""
         return (
             "请评审以下小说章节内容。\n\n"
             f"评审维度:{reviewer_name}\n"
@@ -83,6 +84,7 @@ class Orchestrator:
         )
 
     def _build_writer_prompt(self, context: str, rewrite_feedback: str) -> str:
+        """Build writer prompt from current chapter context and last-round feedback."""
         return (
             "请基于以下上下文撰写本章正文，要求叙事连贯、人物一致、对话自然。\n\n"
             f"{context}\n\n"
@@ -91,11 +93,13 @@ class Orchestrator:
 
     @staticmethod
     def _format_rewrite_feedback(results: list[ReviewResult]) -> str:
+        """Flatten reviewer outputs into a compact feedback block for the next draft."""
         return "\n".join(
             [f"[{r.reviewer}] must_fix={r.must_fix}; issues={r.issues}; suggestions={r.suggestions}" for r in results]
         )
 
     def _ensure_chapter_ready(self, slug: str, chapter_no: int, brief: str | None) -> tuple[Path, Path]:
+        """Ensure chapter folders exist and return (chapter_dir, final_md_path)."""
         chapter_dir = self.repo.chapter_dir(slug, chapter_no)
         if chapter_dir.exists():
             (chapter_dir / "drafts").mkdir(parents=True, exist_ok=True)
@@ -111,6 +115,7 @@ class Orchestrator:
         chapter_no: int,
         review_pipeline: ReviewPipeline,
     ) -> tuple[int, str]:
+        """Recover from existing drafts and return (next_draft_no, rewrite_feedback)."""
         latest_draft_no = self.snapshots.latest_draft_no(slug, chapter_no)
         if latest_draft_no is None:
             return 1, ""
@@ -132,6 +137,7 @@ class Orchestrator:
         draft_text: str,
         summarizer: SummarizerAgent,
     ) -> Path:
+        """Persist final chapter output and update chapter/rolling summaries."""
         final_path = self.snapshots.save_final(slug, chapter_no, draft_text)
         summary_prompt = f"请将以下章节压缩为可用于后续上下文的摘要（300字内）：\n\n{draft_text}"
         summary = summarizer.summarize(summary_prompt)
@@ -175,6 +181,7 @@ class Orchestrator:
         return self.repo.create_book(meta)
 
     def write_chapter(self, slug: str, chapter_no: int, brief: str | None = None, max_rounds: int = 20) -> Path:
+        """Run draft-review loop (with resume support) until chapter passes or rounds exhausted."""
         chapter_dir, final_path = self._ensure_chapter_ready(slug, chapter_no, brief)
         if final_path.exists():
             return final_path
