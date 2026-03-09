@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+from app.agents.goal import GoalAgent
 from app.agents.reviewer import ReviewerAgent
 from app.agents.summarizer import SummarizerAgent
 from app.agents.worldbuilder import WorldBuilderAgent
@@ -57,6 +58,11 @@ class Orchestrator:
         system_prompt = load_prompt(self.root / cfg.system_prompt_file)
         return WriterAgent(cfg, self.llm, system_prompt)
 
+    def _build_goal(self) -> GoalAgent:
+        cfg = self._load_agent_config("goal")
+        system_prompt = load_prompt(self.root / cfg.system_prompt_file)
+        return GoalAgent(cfg, self.llm, system_prompt)
+
     def _build_summarizer(self) -> SummarizerAgent:
         cfg = self._load_agent_config("summarizer")
         system_prompt = load_prompt(self.root / cfg.system_prompt_file)
@@ -84,11 +90,13 @@ class Orchestrator:
         )
 
     def _build_writer_prompt(self, context: str, rewrite_feedback: str) -> str:
-        """构建写作提示词：章节上下文 + 上一轮评审反馈。"""
+        """构建写作提示词：章节上下文 + 上一轮评审反馈（为空时明确标注）。"""
+        context_text = context.strip() if context and context.strip() else "（空）"
+        feedback_text = rewrite_feedback.strip() if rewrite_feedback and rewrite_feedback.strip() else "（空）"
         return (
             "请基于以下上下文撰写本章正文，要求叙事连贯、人物一致、对话自然。\n\n"
-            f"{context}\n\n"
-            f"上轮评审意见（若有）:\n{rewrite_feedback}"
+            f"上下文:\n{context_text}\n\n"
+            f"上轮评审意见:\n{feedback_text}"
         )
 
     @staticmethod
@@ -115,17 +123,21 @@ class Orchestrator:
         chapter_no: int,
         review_pipeline: ReviewPipeline,
     ) -> tuple[int, str]:
-        """从已有草稿恢复状态，返回 (下一稿编号, 重写反馈)。"""
+        """从已有草稿恢复状态：若最近草稿已通过则直接定稿，否则返回下一稿编号和反馈。"""
         latest_draft_no = self.snapshots.latest_draft_no(slug, chapter_no)
         if latest_draft_no is None:
             return 1, ""
 
         last_draft_text = self.snapshots.read_draft(slug, chapter_no, latest_draft_no)
-        resume_results, _ = review_pipeline.run(
+        resume_results, ok = review_pipeline.run(
             lambda reviewer_name: self._build_review_prompt(reviewer_name, last_draft_text)
         )
         for rr in resume_results:
             self.snapshots.save_review(slug, chapter_no, latest_draft_no, rr)
+
+        if ok:
+            self.snapshots.save_final(slug, chapter_no, last_draft_text)
+            return latest_draft_no + 1, ""
 
         return latest_draft_no + 1, self._format_rewrite_feedback(resume_results)
 
@@ -147,6 +159,13 @@ class Orchestrator:
         old = rolling_path.read_text(encoding="utf-8") if rolling_path.exists() else ""
         rolling_path.write_text(old + f"\n\n## Chapter {chapter_no:03d}\n\n" + summary, encoding="utf-8")
         return final_path
+
+    def _resolve_chapter_goal(self, brief: str | None, base_context: str, goal_agent: GoalAgent) -> str:
+        """优先使用用户传入 brief；否则由 GoalAgent 自动生成简要本章目标。"""
+        if brief and brief.strip():
+            return brief.strip()
+        generated = goal_agent.draft_goal(base_context)
+        return generated.strip()
 
     def create_book(
         self,
@@ -187,18 +206,25 @@ class Orchestrator:
             return final_path
 
         writer = self._build_writer()
+        goal_agent = self._build_goal()
         summarizer = self._build_summarizer()
         review_pipeline = ReviewPipeline(self._build_reviewers(), ReviewPolicy(min_avg_score=80))
         context_service = ChapterContextService(self.repo)
 
+        # 先拿“基础上下文”（不含本章目标），再生成简要目标
+        base_context = context_service.build_context(slug, chapter_no, brief=None)
+        chapter_goal = self._resolve_chapter_goal(brief, base_context, goal_agent)
+
         start_draft_no, rewrite_feedback = self._resume_state(slug, chapter_no, review_pipeline)
+        if final_path.exists():
+            return final_path
         if start_draft_no > max_rounds:
             raise RuntimeError(
                 f"Chapter {chapter_no} already has draft_{start_draft_no-1:03d}; increase --max-rounds to continue"
             )
 
         for draft_no in range(start_draft_no, max_rounds + 1):
-            context = context_service.build_context(slug, chapter_no, brief)
+            context = context_service.build_context(slug, chapter_no, chapter_goal)
             draft_text = writer.write_draft(self._build_writer_prompt(context, rewrite_feedback))
             self.snapshots.save_draft(slug, chapter_no, draft_no, draft_text)
 
