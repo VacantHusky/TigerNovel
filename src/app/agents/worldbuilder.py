@@ -8,9 +8,9 @@ WORLDBUILDER_SCHEMA = {
     "additionalProperties": False,
     "required": ["synopsis", "characters", "worldbuilding"],
     "properties": {
-        "synopsis": {"type": "string"},
-        "characters": {"type": "string"},
-        "worldbuilding": {"type": "string"},
+        "synopsis": {"type": "string", "description": "故事梗概。"},
+        "characters": {"type": "string", "description": "人物角色。"},
+        "worldbuilding": {"type": "string", "description": "世界设定。"},
     },
 }
 
